@@ -37,6 +37,7 @@ module day3(
     wire [7:0] in_data;
     wire in_par;
     wire in_recd;
+    wire com_clk;
    
     wire [3:0] cur_max;
     wire [7:0] cur_adr;
@@ -73,7 +74,7 @@ module day3(
     );
     
     ua_tx tx0 (
-        .clk(sysclk),
+        .clk(com_clk),
         .data(tx_out),
         .xmit(clk_out),
         .tx(uart_rxd_out),
@@ -81,7 +82,7 @@ module day3(
     );
     
     ua_rx rx0 (
-        .clk(sysclk),
+        .clk(com_clk),
         .reset(rx_rst),
         .rx_in(uart_txd_in),
         .value(in_data),
@@ -93,6 +94,11 @@ module day3(
     dec64_to_bin dtb0 ( 
         .dec_digits(sum_buf),
         .value(bin_val)
+    );
+    
+    clk_wiz_0 (
+        .clk_in1(sysclk),
+        .clk_out1(com_clk)
     );
     
     //Module to find largest digit in 99 digit range - output both digit and address from array
@@ -263,8 +269,8 @@ module dec64_to_bin #(
 endmodule
 
 module ua_tx #(
-    parameter CLK_FREQ  = 12_000_000,
-    parameter BAUD_RATE = 921_600
+    parameter CLK_FREQ  = 100_000_000,
+    parameter BAUD_RATE = 38_400
 )(
     input        clk,
     input  [7:0] data,
@@ -276,7 +282,7 @@ module ua_tx #(
     localparam integer CYCLES_PER_BIT = CLK_FREQ / BAUD_RATE;
     localparam integer BIT_PERIOD     = CYCLES_PER_BIT - 1;
 
-    reg [11:0] shifter;   // start + 8 data + parity + stop
+    reg [10:0] shifter;   // 8 data + parity + 2 x stop
     reg [3:0]  bit_index; // 0..10
     reg [15:0] counter;
     reg        busy;
@@ -309,8 +315,8 @@ module ua_tx #(
                 shifter <= {1'b1, shifter[10:1]};
                 bit_index <= bit_index + 1;
 
-                // stop after shifting bit 10 (stop bit)
-                if (bit_index == 11) begin
+                // stop after shifting bit 10 (2nd stop bit)
+                if (bit_index == 10) begin
                     busy <= 0;
                     tx   <= 1; // idle
                 end
@@ -322,8 +328,8 @@ module ua_tx #(
 endmodule
 
 module ua_rx #(
-    parameter CLK_FREQ = 12_000_000,  // Clock frequency in Hz (default 12 MHz)
-    parameter BAUD_RATE = 921_600
+    parameter CLK_FREQ = 100_000_000,  // Clock frequency in Hz (default 12 MHz)
+    parameter BAUD_RATE = 38_400
     )
     (
     input clk,
@@ -370,59 +376,48 @@ module ua_rx #(
             par_ok <= 0;
             recd <= 0;
         end else begin
-            // Start transmission on falling edge (start bit)
+            recd <= 0;  // Clear by default (single-cycle pulse)
+            
             if (!busy) begin
-                recd <= 0;
                 if (~rx2) begin  // Detect start bit
                     busy <= 1;
                     counter <= 0;
                     cur_bit <= 0;
                 end
             end else begin
-                case (counter)
-                    SAMPLE_POINT: begin // Sample in middle of bit
-                        counter <= counter + 1;
-                        
-                        case (cur_bit)
-                            0: begin
-                                // Start bit - should be 0, just verify
-                                if (rx2 != 0) begin
-                                    // Invalid start bit, reset
-                                    busy <= 0;
-                                end
-                            end
-                            1, 2, 3, 4, 5, 6, 7, 8: begin
-                                // Data bits (LSB first)
-                                data[cur_bit - 1] <= rx2;
-                            end
-                            9: begin
-                                // Parity bit (even parity)
-                                par_ok <= ((^data) == rx2);  // True if parity matches
-                            end
-                            10: begin
-                                // Stop bit - should be 1
-                                if (rx2 == 1) begin
-                                    value <= data;
-                                    recd <= 1;
-                                end
-                                // Will reset on next cycle
-                            end
-                        endcase
-                    end
+                if (counter == SAMPLE_POINT) begin
+                    counter <= counter + 1;
                     
-                    (CYCLES_PER_BIT - 1): begin // End of bit period
-                        counter <= 0;
-                        
-                        if (cur_bit == 10) begin
-                            // Finished receiving complete frame
-                            busy <= 0;
-                            cur_bit <= 0;
-                        end else begin
-                            cur_bit <= cur_bit + 1;
+                    case (cur_bit)
+                        0: begin
+                            if (rx2 != 0) busy <= 0;  // Invalid start
                         end
+                        1, 2, 3, 4, 5, 6, 7, 8: begin
+                            data[cur_bit - 1] <= rx2;
+                        end
+                        9: begin
+                            // Fixed parity check for even parity
+                            par_ok <= (^{data, rx2}) == 1'b0;
+                        end
+                        10: begin
+                            if (rx2 == 1) begin
+                                value <= data;
+                                recd <= 1;  // Single-cycle pulse
+                            end
+                        end
+                    endcase
+                    
+                end else if (counter == CYCLES_PER_BIT - 1) begin
+                    counter <= 0;
+                    if (cur_bit == 10) begin
+                        busy <= 0;
+                        cur_bit <= 0;
+                    end else begin
+                        cur_bit <= cur_bit + 1;
                     end
-                    default: counter <= counter + 1;
-                endcase
+                end else begin
+                    counter <= counter + 1;
+                end
             end
         end
     end

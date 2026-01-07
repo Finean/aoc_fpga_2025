@@ -3,7 +3,7 @@
 module testbench;
     
     parameter CLK_FREQ = 12_000_000;
-    parameter BAUD_RATE = 921_600;
+    parameter BAUD_RATE = 38_400;
     
     parameter CLK_PERIOD = 1_000_000_000 / CLK_FREQ; // ns
     parameter CYCLES_PER_BIT = CLK_FREQ / BAUD_RATE;
@@ -31,9 +31,7 @@ module testbench;
         input [7:0] data;
         integer k;
         begin
-            parity = 0;
-            for (k = 0; k < 8; k = k + 1)
-                parity = parity ^ data[k];
+            parity = ^ data;
         end
     endfunction
     
@@ -42,7 +40,7 @@ module testbench;
         integer j;
         reg par;
         begin
-            par = parity(data);
+            par = ^ data;
             
             // Start bit
             uart_txd_in = 0;
@@ -86,8 +84,6 @@ module testbench;
                 #(CLK_PERIOD * CYCLES_PER_BIT);
             end
     
-            // Move to middle of parity bit
-            #(CLK_PERIOD * CYCLES_PER_BIT);
             par_received  = uart_rxd_out;
             par_calculated = parity(data);
     
@@ -181,9 +177,13 @@ module testbench;
         
             // Send header
             uart_send_byte(8'hAA);
-            uart_send_byte(8'd50);   // line length in bytes
-            uart_send_byte(8'h00);   // yyy high
-            uart_send_byte(8'h5C);   // yyy low nibble + z = number of digits
+            #(CLK_PERIOD * 20);
+            uart_send_byte(8'h32); // line length in bytes
+            #(CLK_PERIOD * 20);   
+            uart_send_byte(8'h00); // yyy high  
+            #(CLK_PERIOD * 20);
+            uart_send_byte(8'h5C); // yyy low nibble + z = number of digits
+            #(CLK_PERIOD * 20);  
             $display("Test Case");
             $display("Sending data via UART...");
             // Send all 5 lines
@@ -199,7 +199,7 @@ module testbench;
     
     initial begin
         $display("Starting Day 3 Testbench");
-        $display("Expecting output as UTF-8 characters, followed by 'X' (ASCII digits)");
+        $display("Expecting output as 16 hex digits");
         $dumpfile("day3_tb.vcd");
         $dumpvars(0, testbench);
         
