@@ -1,40 +1,34 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 05.01.2026 13:23:46
-// Design Name: 
-// Module Name: day3
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
-// 
-// Dependencies: 
-// 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
-// 
-//////////////////////////////////////////////////////////////////////////////////
 
-
-module day3_part1(
+module day3(
     input sysclk,
     input uart_txd_in,
     output uart_rxd_out
     );
     
-    // Using 2 digits for part 2
-    reg [399:0] data;
-    reg [395:0] cur_data;
-    reg [7:0] out;
-    reg [7:0] state;
+    parameter INIT = 10'b0000000001;
+    parameter HEAD = 10'b0000000010;
+    parameter WAIT = 10'b0000000100;
+    parameter RECV = 10'b0000001000;
+    parameter CALC = 10'b0000010000;
+    parameter NEXT = 10'b0000100000;
+    parameter SEND = 10'b0001000000;
+    parameter CLHI = 10'b0010000000;
+    parameter CLLO = 10'b0100000000;
+    parameter RSET = 10'b1000000000;
+    
+    reg [9:0] state;
+    
+    reg [399:0] data; // Store current line
+    reg [63:0] sum; // Stores the sum (result)
+    reg [63:0] sum_buf; // Stores value from current line
+    reg [31:0] header_data; // Stores header data
+    reg [11:0] cur_line;
     reg [7:0] counter;
     reg [7:0] adr;
-    reg busy;
-    
+    reg [7:0] prev_adr;
+   
+    // UART regs + wires
     reg [7:0] tx_out;
     reg clk_out;
     reg rx_rst;
@@ -43,30 +37,37 @@ module day3_part1(
     wire [7:0] in_data;
     wire in_par;
     wire in_recd;
-    
-    
-    
+   
     wire [3:0] cur_max;
     wire [7:0] cur_adr;
+    wire [63:0] bin_val;
     
+    wire [3:0] n_digits = header_data[0 +: 4];
+    wire [6:0] c_digit = counter >> 1;
+    wire [7:0] right_mask = n_digits - 1 - c_digit;
     
     //Example line
     initial begin
         data = 0;
-        cur_data = 0;
-        state = 8'h00;
-        counter = 0;
+        state = INIT;
         adr = 0;
+        header_data = 0;
+        cur_line = 12'h01F;
+        counter = 0;
+        sum = 0;
+        sum_buf = 0;
+        prev_adr = 8'hFF;
         
         tx_out = 0;
         clk_out = 0;
         rx_rst = 0;
-        out = 0;
     end
     
     // Load data from register
     find_max max0 ( 
-        .data(cur_data),
+        .data(data),
+        .prev_adr(prev_adr),
+        .mask(right_mask),
         .max_val(cur_max),
         .max_adr(cur_adr)
     );
@@ -88,191 +89,243 @@ module day3_part1(
         .recd(in_recd)
     );
     
+    // Only needed to convert sum_buf to its hex value
+    dec64_to_bin dtb0 ( 
+        .dec_digits(sum_buf),
+        .value(bin_val)
+    );
+    
     //Module to find largest digit in 99 digit range - output both digit and address from array
     always @(posedge sysclk) begin
         case (state)
-            8'h00: begin
-                if (counter > 250) begin
+            INIT: begin // Initialise
+                if (cur_line < 2) begin
+                    cur_line <= 0;
+                    data <= 0;
+                    sum <= 0;
+                    sum_buf <= 0;
                     counter <= 0;
-                    state <= 1;
+                    state <= HEAD;
                 end else
-                    counter <= counter + 1;
+                    cur_line <= cur_line - 1;
             end
-            8'h01: begin //Listen for 100 values (50 packets)
+            HEAD: begin // Listen for 4 byte header 0xAAxxyyyz -> xx is length of line (max 100), yyy is number of lines (max 4095), z is number of digits to find per line (max 15)
                 if (in_recd & ~rx_rst) begin
-                    data <= {in_data, data[399:8]};
+                    header_data <= {header_data[0 +: 24], in_data};
                     counter <= counter + 1;
                     rx_rst <= 1;
-                    if (counter >= 49) begin  // After this byte, we'll have 50
-                        state <= state + 1;
+                    if (counter == 3)
+                        state <= WAIT;
+                end else begin
+                    rx_rst <= 0;
+                end
+            end
+            WAIT: begin
+                cur_line <= header_data[4 +: 12];
+                prev_adr <= 8'hFF;
+                adr <= 0;
+                counter <= 0;
+                state <= RECV;
+            end
+            RECV: begin //Listen for x values (x / 2 packets) -> only supports even length (pad odd length with 0 at start)
+                if (cur_line == 0) begin
+                    state <= SEND;
+                    counter <= 0;
+                end else if (in_recd & ~rx_rst) begin
+                    data <= {data[391:0], in_data};
+                    counter <= counter + 1;
+                    rx_rst <= 1;
+                    if (counter == header_data[16 +: 8] - 1) begin
+                        state   <= CALC;
                         counter <= 0;
                     end
                 end else begin
                     rx_rst <= 0;
                 end
             end 
-            8'h02: begin // Find first digit
-                cur_data <= data[399:4];  // Search first 99 digits
-                state <= state + 1;
+            CALC: begin // Find digits
+                case (counter[0])
+                    1'b0: begin // Load value in max module
+                        // Adr (0 is most significant bit on data)
+                        prev_adr <= adr;
+                        counter <= counter + 1;
+                    end
+                    default: begin // Read output from max module
+                        sum_buf[4 * (n_digits - 1 - c_digit) +: 4] <= cur_max;
+                        adr <= cur_adr;
+                        counter <= counter + 1;
+                        if (c_digit >= (n_digits - 1)) begin // All digits done
+                            cur_line <= cur_line - 1;
+                            counter <= 0;
+                            state <= NEXT;
+                        end
+                    end
+                endcase
             end
-            8'h03: begin // Store first result
-                out[4 +: 4] <= cur_max;
-                tx_out <= 8'h30 + {4'h0, cur_max};
-                adr <= cur_adr;
-                state <= state + 1;
+            NEXT: begin
+                sum <= sum + bin_val;
+                data <= 0;
+                prev_adr <= 8'hFF;
+                adr <= 0;
+                state <= RECV;
             end
-            8'h04: begin // Find second digit
-                // adr is the digit index (0=most significant)
-                // We want to search only digits AFTER (less significant than) adr
-                // Zero out bits [395:392-adr*4] to exclude digit 0 through adr
-                cur_data <= (data[395:0] << (adr * 4 + 4)) >> (adr * 4 + 4);
-                state <= state + 1;
-            end
-            8'h05: begin // Store second result
-                out[0 +: 4] <= cur_max;   // Store second max digit (ones place)
-                state <= state + 1;
-            end
-            8'h06: begin // Pulse xmit high for first digit
-                clk_out <= 1;
-                state <= state + 1;
-            end
-            8'h07: begin // Clear xmit pulse
-                clk_out <= 0;
-                state <= state + 1;
-            end
-            8'h08: begin // Wait for first transmission to complete
-                if (tx_ready) begin
-                    state <= state + 1;
+            SEND: begin
+                if (counter == 8) begin
+                    counter <= 0;
+                    state <= RSET;
+                end else if (tx_ready) begin
+                    tx_out <= sum[56 - 8*counter +: 8];
+                    counter <= counter + 1;
+                    state <= CLHI;
                 end
             end
-            8'h09: begin // Prepare second digit for transmission
-                tx_out <= 8'h30 + {4'h0, out[0 +: 4]};
-                state <= state + 1;
-            end
-            8'h0A: begin // Pulse xmit high for second digit
+            CLHI: begin
                 clk_out <= 1;
-                state <= state + 1;
+                state <= CLLO;
             end
-            8'h0B: begin // Clear xmit pulse
+            CLLO: begin
                 clk_out <= 0;
-                state <= state + 1;
+                state <= SEND;
             end
-            8'h0C: begin // Wait for second transmission to complete
-                if (tx_ready) begin
+            RSET: begin
+                if (counter >= 100) begin
+                    // Only reset what's needed for next iteration
+                    sum <= 0;
+                    counter <= 0;
                     rx_rst <= 0;
-                    state <= 1;
-                end
+                    prev_adr <= 8'hFF;
+                    state <= HEAD;
+                end else
+                    counter <= counter + 1;
             end
             default: ;
         endcase
     end
 endmodule
 
-
-
-
 module find_max(
-    input [395:0] data,
+    input [399:0] data,
+    input [7:0] prev_adr,
+    input [7:0] mask,
     output [3:0] max_val,
     output [7:0] max_adr
     );
     
     // Biased towards earlier (more significant) digits
-    // Returns max_adr from data
-
+    // Returns max_adr from data - 0 = MSB
     reg [3:0] max;
     reg [7:0] adr;
     reg [3:0] current;
+    reg done;  // Flag to stop checking after finding 9
     integer i;
     
     always @(*) begin
         max = 4'h0;
-        adr = 8'h0;
+        adr = 0;
+        done = 0;
         
-        for (i = 0; i < 99; i = i + 1) begin
-            current = data[392 - (i * 4) +: 4];
-            if (current > max) begin
-                max = current;
-                adr = i;
+        for (i = 0; i < 100; i = i + 1) begin
+            if (!done && (i > prev_adr) && (i <= 99 - mask)) begin
+                current = data[396 - (i * 4) +: 4];
+                if (current > max) begin
+                    max = current;
+                    adr = i;
+                    if (max == 4'h9) begin
+                        done = 1;  // Set flag instead of breaking
+                    end
+                end
             end
         end
     end
-
+    
     assign max_adr = adr;
     assign max_val = max;
     
 endmodule
 
+module dec64_to_bin #(
+    parameter DIGITS = 16
+)(
+    input  wire [63:0] dec_digits,   // 16 × 4-bit digits
+    output reg  [63:0] value
+);
+    integer i;
+    reg [3:0] d;
+
+    always @(*) begin
+        value = 0;
+        for (i = 0; i < DIGITS; i = i + 1) begin
+            d = dec_digits[(DIGITS-1-i)*4 +: 4];  // MS digit first
+            // value * 10 = value * 8 + value * 2 = (value << 3) + (value << 1)
+            value = (value << 3) + (value << 1) + d;
+        end
+    end
+endmodule
+
 module ua_tx #(
-    parameter CLK_FREQ = 12_000_000,  // Clock frequency in Hz (default 12 MHz)
-    parameter BAUD_RATE = 9600        // Baud rate (default 9600)
-) (
-    input clk,
-    input [7:0] data,
-    input xmit,
-    output reg tx,
-    output ready
-    );
-    
-    // Calculate cycles per bit at compile time
-    localparam CYCLES_PER_BIT = CLK_FREQ / BAUD_RATE;
-    
-    reg [3:0] cur_dig;
+    parameter CLK_FREQ  = 12_000_000,
+    parameter BAUD_RATE = 921_600
+)(
+    input        clk,
+    input  [7:0] data,
+    input        xmit,
+    output reg   tx,
+    output       ready
+);
+
+    localparam integer CYCLES_PER_BIT = CLK_FREQ / BAUD_RATE;
+    localparam integer BIT_PERIOD     = CYCLES_PER_BIT - 1;
+
+    reg [11:0] shifter;   // start + 8 data + parity + stop
+    reg [3:0]  bit_index; // 0..10
     reg [15:0] counter;
-    reg [10:0] xmit_value;
-    reg busy;
-    
-    wire parity;
-    wire [10:0] out;
-    
-    assign parity = ^ data; // Even parity bit
-    assign out = {1'b1, parity, data, 1'b0};
-    
-    initial begin 
-        tx = 1;
-        busy = 0;
-        counter = 0;
-        cur_dig = 0;
-        xmit_value = 0;
-    end
-    
-    always @(posedge clk) begin
-    
-        // On xmit high initialise packet
-        if (xmit && !busy) begin
-            busy <= 1;
-            counter <= 0;
-            cur_dig <= 0;
-            xmit_value <= out;
-        end
-        else if (busy) begin
-            // Wait CYCLES_PER_BIT cycles for each bit
-            // Load next value on counter = 0
-            if (counter == 0) begin
-                tx <= xmit_value[cur_dig];
-                counter <= counter + 1;
-            end
-            else if (counter >= (CYCLES_PER_BIT - 1)) begin
-                counter <= 0;
-                if (cur_dig == 10) begin
-                    tx <= 1;
-                    busy <= 0;
-                end
-                else
-                    cur_dig <= cur_dig + 1;
-            end
-            else
-                counter <= counter + 1;
-        end
-    end
-    
+    reg        busy;
+
     assign ready = ~busy;
+
+    initial begin
+        tx        = 1;
+        busy      = 0;
+        counter   = 0;
+        bit_index = 0;
+        shifter   = 0;
+    end
+
+    always @(posedge clk) begin
+        if (!busy) begin
+            if (xmit) begin
+                shifter   <= {2'b11, (^data), data};
+                busy      <= 1;
+                bit_index <= 0;
+                counter   <= 0;
+                tx        <= 0;  // start bit
+            end
+        end else begin
+            if (counter == BIT_PERIOD) begin
+                counter <= 0;
+
+                // shift out next bit
+                tx <= shifter[0];
+                shifter <= {1'b1, shifter[10:1]};
+                bit_index <= bit_index + 1;
+
+                // stop after shifting bit 10 (stop bit)
+                if (bit_index == 11) begin
+                    busy <= 0;
+                    tx   <= 1; // idle
+                end
+            end else begin
+                counter <= counter + 1;
+            end
+        end
+    end
 endmodule
 
 module ua_rx #(
     parameter CLK_FREQ = 12_000_000,  // Clock frequency in Hz (default 12 MHz)
-    parameter BAUD_RATE = 9600        // Baud rate (default 9600)
-) (
+    parameter BAUD_RATE = 921_600
+    )
+    (
     input clk,
     input reset,
     input rx_in,
@@ -282,8 +335,8 @@ module ua_rx #(
     );
     
     // Calculate cycles per bit at compile time
-    localparam CYCLES_PER_BIT = CLK_FREQ / BAUD_RATE;
-    localparam SAMPLE_POINT = CYCLES_PER_BIT / 2;  // Sample in middle of bit
+    localparam integer CYCLES_PER_BIT = CLK_FREQ / BAUD_RATE;
+    localparam integer SAMPLE_POINT = CYCLES_PER_BIT / 2;  // Sample in middle of bit
     
     reg rx1, rx2;
     always @(posedge clk) begin
@@ -368,7 +421,6 @@ module ua_rx #(
                             cur_bit <= cur_bit + 1;
                         end
                     end
-                    
                     default: counter <= counter + 1;
                 endcase
             end
