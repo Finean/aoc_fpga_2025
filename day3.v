@@ -37,7 +37,6 @@ module day3(
     wire [7:0] in_data;
     wire in_par;
     wire in_recd;
-    wire com_clk;
    
     wire [3:0] cur_max;
     wire [7:0] cur_adr;
@@ -74,7 +73,7 @@ module day3(
     );
     
     ua_tx tx0 (
-        .clk(com_clk),
+        .clk(sysclk),
         .data(tx_out),
         .xmit(clk_out),
         .tx(uart_rxd_out),
@@ -82,7 +81,7 @@ module day3(
     );
     
     ua_rx rx0 (
-        .clk(com_clk),
+        .clk(sysclk),
         .reset(rx_rst),
         .rx_in(uart_txd_in),
         .value(in_data),
@@ -94,11 +93,6 @@ module day3(
     dec64_to_bin dtb0 ( 
         .dec_digits(sum_buf),
         .value(bin_val)
-    );
-    
-    clk_wiz_0 (
-        .clk_in1(sysclk),
-        .clk_out1(com_clk)
     );
     
     //Module to find largest digit in 99 digit range - output both digit and address from array
@@ -269,7 +263,7 @@ module dec64_to_bin #(
 endmodule
 
 module ua_tx #(
-    parameter CLK_FREQ  = 100_000_000,
+    parameter CLK_FREQ  = 12_000_000,
     parameter BAUD_RATE = 38_400
 )(
     input        clk,
@@ -328,7 +322,7 @@ module ua_tx #(
 endmodule
 
 module ua_rx #(
-    parameter CLK_FREQ = 100_000_000,  // Clock frequency in Hz (default 12 MHz)
+    parameter CLK_FREQ = 12_000_000,  // Clock frequency in Hz (default 12 MHz)
     parameter BAUD_RATE = 38_400
     )
     (
