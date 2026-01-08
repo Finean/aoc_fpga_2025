@@ -1,10 +1,10 @@
 import serial
 import time
 
-COM_PORT = "COM11"
+COM_PORT = "COM11" # Change to correct COM port on your device
 BAUD_RATE = 38_400
 
-HEADER_CONST = 0xC   # 1 - 15 digit output
+HEADER_CONST = 0xC  # Set digits per line (1 - 15)
 
 with open("input.txt", "r") as f:
     lines = [line.strip() for line in f.readlines() if line.strip()]
@@ -17,6 +17,7 @@ inl = ["163844328893757533262365277475366622561727652358432643523364443543547513
 
 
 #lines = [line.strip() for line in inl]
+# ^ Uncomment to use above test case (same as in testbench)
 
 num_lines = len(lines)
 
@@ -28,18 +29,24 @@ line_len_hex = len(lines[0]);
 if any(len(line) != line_len_hex for line in lines):
     raise ValueError("All lines in input.txt must have the same hex length")
 
-if line_len_hex % 2 != 0:
-    raise ValueError("Each line must contain an even number of hex characters")
-
-print(f"Loaded {num_lines} lines from input.txt")
-
-# Header: 0xAA xxyyyz
-# xx = line length in bytes (1 byte)
-# yyy = number of lines (12-bit value)
-# z = number of digits from each line
+if line_len_hex > 100:
+    raise ValueError("Line length too long (max 100)")
 
 if num_lines > 0xFFF:
     raise ValueError("Too many lines (max 4095)")
+
+# If line length is odd, then pad all with leading 0s (does not change result)
+if line_len_hex % 2 != 0:
+    print("Odd line length -> padding start")
+    for idx, line in enumerate(lines):
+        lines[idx] = "0" + line
+
+print(f"Loaded {num_lines} lines from input.txt")
+
+# Header: 0xAAxxyyyz
+# xx = line length in bytes (1 byte) (max 100)
+# yyy = number of lines (12-bit value)
+# z = number of digits from each line
 
 header = bytearray()
 header.append(0xAA)
@@ -60,10 +67,13 @@ for line in lines:
 # Join into single payload
 payload = header + b"".join(encoded_lines)
 
-print(f"Total payload size: {len(payload)} bytes")
+#encoded_lines = map(bytes.fromhex, lines)
+#payload = header + b"".join(encoded_lines)
 
 with open("payload.bin", "wb") as f:
     f.write(payload)
+
+print(f"Total payload size: {len(payload)} bytes")
 
 # Send over UART
 start_time = time.time()
@@ -76,7 +86,7 @@ try:
         parity=serial.PARITY_EVEN,
         stopbits=serial.STOPBITS_ONE,
         timeout=2,
-        write_timeout=10,
+        write_timeout=2,
         inter_byte_timeout=0.1
     )
 
@@ -87,8 +97,10 @@ try:
 
     time.sleep(0.01)
     print("Sending header + data...")
+    
     ser.write(payload)
     ser.flush()
+    
     print("Sent!\n")
 
     # Expect exactly 8 bytes back (64 bit value)

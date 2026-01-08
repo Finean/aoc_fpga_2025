@@ -3,7 +3,7 @@
 module testbench;
     
     parameter CLK_FREQ = 12_000_000;
-    parameter BAUD_RATE = 38_400;
+    parameter BAUD_RATE = 57_600;
     
     parameter CLK_PERIOD = 1_000_000_000 / CLK_FREQ; // ns
     parameter CYCLES_PER_BIT = CLK_FREQ / BAUD_RATE;
@@ -23,17 +23,6 @@ module testbench;
         sysclk = 0;
         forever #(CLK_PERIOD/2) sysclk = ~sysclk;
     end
-    
-    reg [7:0] test_data [0:53];  // 54 bytes (header + 100 digits)
-    integer i;
-    
-    function parity;
-        input [7:0] data;
-        integer k;
-        begin
-            parity = ^ data;
-        end
-    endfunction
     
     task uart_send_byte;
         input [7:0] data;
@@ -85,7 +74,7 @@ module testbench;
             end
     
             par_received  = uart_rxd_out;
-            par_calculated = parity(data);
+            par_calculated = ^ data;
     
             if (par_received != par_calculated) begin
                 $display("WARNING: Parity error - Received=%b, Calculated=%b, data=0x%02h, time=%0t",
@@ -154,6 +143,8 @@ module testbench;
         end
     end
     
+    reg [7:0] test_data [0:49];  // 50 bytes (100 digits)
+    
     task load_line;
         input [399:0] line_bits;
         integer idx;
@@ -165,7 +156,7 @@ module testbench;
     
     task test_case;
         reg [399:0] lines [0:4];
-    
+        integer i;
         begin
         
             //Result for 12 digits is 4451415640417 = 0x0000040C6D0C4961
@@ -174,17 +165,18 @@ module testbench;
             lines[2] = 400'h3652353332235222312654422632323222352336234432232537434232233323339225325363122653543323432221132825;
             lines[3] = 400'h2122322222222231134132222222422221217222322212221122226122412221222212122233222242352123232232232322;
             lines[4] = 400'h3245355131225321425124122442562435222125236532344452424822541554253226545415432432352232465432354659;
-            //13323
+            
             // Send header
             uart_send_byte(8'hAA);
             #(CLK_PERIOD * 20);
-            uart_send_byte(8'h32); // line length in bytes
+            uart_send_byte(8'h32); // line length in bytes (line length / 2)
             #(CLK_PERIOD * 20);   
             uart_send_byte(8'h00); // yyy high  
             #(CLK_PERIOD * 20);
             uart_send_byte(8'h5C); // yyy low nibble + z = number of digits
             #(CLK_PERIOD * 20);  
-            $display("Test Case");
+            
+            $display("Running test case");
             $display("Sending data via UART...");
             // Send all 5 lines
             for (i = 0; i < 5; i = i + 1) begin
@@ -207,7 +199,7 @@ module testbench;
         uart_txd_in = 1;  // Idle high
         
         // Wait for initialization (state 0x00)
-        #(CLK_PERIOD * 5000);
+        #(CLK_PERIOD * 1000);
         
         // Run the specific test case
         test_case();
@@ -217,7 +209,7 @@ module testbench;
     
     // Watch for timeout
     initial begin
-        #(CLK_PERIOD * 3000000);
+        #(CLK_PERIOD * 2000000);
         $display("ERROR: Testbench timeout");
         $finish;
     end
@@ -225,11 +217,6 @@ module testbench;
     // Monitor data reception
     always @(posedge u0.in_recd) begin
         $display("Time %0t: received input byte 0x%h (counter = %0d)", $time, u0.in_data, u0.counter);
-    end
-    
-    // Monitor transmission starts
-    always @(posedge u0.clk_out) begin
-        $display("Time %0t: Transmit: tx_out=0x%h", $time, u0.tx_out);
     end
 
 endmodule
