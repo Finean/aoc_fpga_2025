@@ -25,8 +25,7 @@ module day3(
     reg [31:0] header_data; // Stores header data
     reg [11:0] cur_line;
     reg [7:0] counter;
-    reg [7:0] adr;
-    reg [7:0] prev_adr;
+    reg [7:0] left_mask;
    
     // UART regs + wires
     reg [7:0] tx_out;
@@ -50,13 +49,12 @@ module day3(
     initial begin
         data = 0;
         state = INIT;
-        adr = 0;
         header_data = 0;
         cur_line = 12'h01F;
         counter = 0;
         sum = 0;
         sum_buf = 0;
-        prev_adr = 8'hFF;
+        left_mask = 8'h00;
         
         tx_out = 0;
         clk_out = 0;
@@ -66,13 +64,13 @@ module day3(
     // Load data from register
     find_max max0 ( 
         .data(data),
-        .prev_adr(prev_adr),
-        .mask(right_mask),
+        .left_mask(left_mask),
+        .right_mask(right_mask),
         .max_val(cur_max),
         .max_adr(cur_adr)
     );
     
-    ua_tx tx0 (
+    uart_tx tx0 (
         .clk(sysclk),
         .data(tx_out),
         .xmit(clk_out),
@@ -80,17 +78,17 @@ module day3(
         .ready(tx_ready)
     );
     
-    ua_rx rx0 (
+    uart_rx rx0 (
         .clk(sysclk),
-        .reset(rx_rst),
+        .read(rx_rst),
         .rx_in(uart_txd_in),
         .value(in_data),
         .par_ok(in_par),
         .recd(in_recd)
     );
     
-    // Only needed to convert sum_buf to its hex value
-    dec64_to_bin dtb0 ( 
+    // Only needed to convert sum_buf to its binary value
+    bcd_to_bin dtb0 ( 
         .dec_digits(sum_buf),
         .value(bin_val)
     );
@@ -122,8 +120,7 @@ module day3(
             end
             WAIT: begin
                 cur_line <= header_data[4 +: 12];
-                prev_adr <= 8'hFF;
-                adr <= 0;
+                left_mask <= 8'h00;
                 counter <= 0;
                 state <= RECV;
             end
@@ -136,6 +133,7 @@ module day3(
                     counter <= counter + 1;
                     rx_rst <= 1;
                     if (counter == header_data[16 +: 8] - 1) begin
+                        sum_buf <= 0;
                         state   <= CALC;
                         counter <= 0;
                     end
@@ -147,12 +145,11 @@ module day3(
                 case (counter[0])
                     1'b0: begin // Load value in max module
                         // Adr (0 is most significant bit on data)
-                        prev_adr <= adr;
+                        sum_buf[4 * (n_digits - 1 - c_digit) +: 4] <= cur_max;
                         counter <= counter + 1;
                     end
                     default: begin // Read output from max module
-                        sum_buf[4 * (n_digits - 1 - c_digit) +: 4] <= cur_max;
-                        adr <= cur_adr;
+                        left_mask <= cur_adr + 1;
                         counter <= counter + 1;
                         if (c_digit >= (n_digits - 1)) begin // All digits done
                             cur_line <= cur_line - 1;
@@ -165,8 +162,7 @@ module day3(
             NEXT: begin
                 sum <= sum + bin_val;
                 data <= 0;
-                prev_adr <= 8'hFF;
-                adr <= 0;
+                left_mask <= 8'h00;
                 state <= RECV;
             end
             SEND: begin
@@ -193,7 +189,7 @@ module day3(
                     sum <= 0;
                     counter <= 0;
                     rx_rst <= 0;
-                    prev_adr <= 8'hFF;
+                    left_mask <= 8'h00;
                     state <= HEAD;
                 end else
                     counter <= counter + 1;
@@ -205,8 +201,8 @@ endmodule
 
 module find_max(
     input [399:0] data,
-    input [7:0] prev_adr,
-    input [7:0] mask,
+    input [7:0] left_mask,
+    input [7:0] right_mask,
     output [3:0] max_val,
     output [7:0] max_adr
     );
@@ -225,7 +221,7 @@ module find_max(
         done = 0;
         
         for (i = 0; i < 100; i = i + 1) begin
-            if (!done && (i > prev_adr) && (i <= 99 - mask)) begin
+            if (!done && (i >= left_mask) && (i <= 99 - right_mask)) begin
                 current = data[396 - (i * 4) +: 4];
                 if (current > max) begin
                     max = current;
@@ -243,7 +239,7 @@ module find_max(
     
 endmodule
 
-module dec64_to_bin #(
+module bcd_to_bin #(
     parameter DIGITS = 16
 )(
     input  wire [63:0] dec_digits,   // 16 × 4-bit digits
@@ -262,7 +258,7 @@ module dec64_to_bin #(
     end
 endmodule
 
-module ua_tx #(
+module uart_tx #(
     parameter CLK_FREQ  = 12_000_000,
     parameter BAUD_RATE = 38_400
 )(
@@ -274,10 +270,9 @@ module ua_tx #(
 );
 
     localparam integer CYCLES_PER_BIT = CLK_FREQ / BAUD_RATE;
-    localparam integer BIT_PERIOD     = CYCLES_PER_BIT - 1;
 
-    reg [10:0] shifter;   // 8 data + parity + 2 x stop
-    reg [3:0]  bit_index; // 0..10
+    reg [10:0] shifter;   // 8 data, parity (even), 2 x stop
+    reg [3:0]  cur_bit; // 0..10
     reg [15:0] counter;
     reg        busy;
 
@@ -287,30 +282,30 @@ module ua_tx #(
         tx        = 1;
         busy      = 0;
         counter   = 0;
-        bit_index = 0;
+        cur_bit = 0;
         shifter   = 0;
     end
 
     always @(posedge clk) begin
         if (!busy) begin
             if (xmit) begin
-                shifter   <= {2'b11, (^data), data};
+                shifter   <= {2'b11, (^data), data}; // Latch data into shifter
                 busy      <= 1;
-                bit_index <= 0;
+                cur_bit <= 0;
                 counter   <= 0;
-                tx        <= 0;  // start bit
+                tx        <= 0;  // Set tx low for start bit
             end
         end else begin
-            if (counter == BIT_PERIOD) begin
+            if (counter == (CYCLES_PER_BIT - 1)) begin
                 counter <= 0;
 
-                // shift out next bit
+                // Shift out next bit
                 tx <= shifter[0];
                 shifter <= {1'b1, shifter[10:1]};
-                bit_index <= bit_index + 1;
+                cur_bit <= cur_bit + 1;
 
-                // stop after shifting bit 10 (2nd stop bit)
-                if (bit_index == 10) begin
+                // Stop after shifting bit 10 (2nd stop bit)
+                if (cur_bit == 11) begin
                     busy <= 0;
                     tx   <= 1; // idle
                 end
@@ -321,13 +316,13 @@ module ua_tx #(
     end
 endmodule
 
-module ua_rx #(
+module uart_rx #(
     parameter CLK_FREQ = 12_000_000,  // Clock frequency in Hz (default 12 MHz)
     parameter BAUD_RATE = 38_400
     )
     (
     input clk,
-    input reset,
+    input read,
     input rx_in,
     output reg [7:0] value,
     output reg par_ok,
@@ -345,13 +340,15 @@ module ua_rx #(
     end
     
     reg [15:0] counter;
-    reg [3:0] cur_bit;  // 0=start, 1-8=data, 9=parity, 10=stop
-    reg [7:0] data;
+    reg [3:0] cur_bit;  // 0=start, 1-8=data, 9=parity (even), 10=stop
+    reg [7:0] cur_data;
     reg busy;
+    reg flag_rst;
     
     initial begin 
         busy = 0;
-        data = 0;
+        flag_rst = 0;
+        cur_data = 0;
         par_ok = 0;
         cur_bit = 0;
         counter = 0;
@@ -362,21 +359,15 @@ module ua_rx #(
     end
     
     always @(posedge clk) begin
-        if (reset) begin
-            busy <= 0;
-            counter <= 0;
-            cur_bit <= 0;
-            data <= 0;
-            par_ok <= 0;
+        if (read) begin // Use read input to reset recd flag
             recd <= 0;
         end else begin
-            recd <= 0;  // Clear by default (single-cycle pulse)
-            
             if (!busy) begin
                 if (~rx2) begin  // Detect start bit
                     busy <= 1;
                     counter <= 0;
                     cur_bit <= 0;
+                    cur_data <= 0;
                 end
             end else begin
                 if (counter == SAMPLE_POINT) begin
@@ -387,16 +378,16 @@ module ua_rx #(
                             if (rx2 != 0) busy <= 0;  // Invalid start
                         end
                         1, 2, 3, 4, 5, 6, 7, 8: begin
-                            data[cur_bit - 1] <= rx2;
+                            cur_data <= {rx2, cur_data[1 +: 7]}; // Shift register
                         end
                         9: begin
-                            // Fixed parity check for even parity
-                            par_ok <= (^{data, rx2}) == 1'b0;
+                            // Fixed parity check for even parity bit
+                            par_ok <= (^{cur_data, rx2}) == 1'b0;
                         end
                         10: begin
                             if (rx2 == 1) begin
-                                value <= data;
-                                recd <= 1;  // Single-cycle pulse
+                                value <= cur_data; // Latch cur_data into output value, allows rest of device to keep processing old data while new is received
+                                recd <= 1;  // Set recd flag
                             end
                         end
                     endcase
