@@ -82,6 +82,7 @@ module top(
             end
             3: begin
                 if (counter == 16) begin // Done
+                    uart_xmit <= 0;
                     state <= 4;
                 end else if (uart_xmit) begin
                     uart_xmit <= 0;

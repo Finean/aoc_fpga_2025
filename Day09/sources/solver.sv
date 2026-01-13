@@ -18,8 +18,8 @@ module solver(
     localparam DONE = 4'h5;
     
     // Split block ram for max port width of 32
-    (* ram_style = "block" *) reg [COORD_SIZE - 1:0] vx_data_y [0:NUM_PTS - 1]; 
-    (* ram_style = "block" *) reg [COORD_SIZE - 1:0] vx_data_x [0:NUM_PTS - 1];
+    (* rom_style = "block" *) reg [COORD_SIZE - 1:0] vx_data_y [0:NUM_PTS - 1]; 
+    (* rom_style = "block" *) reg [COORD_SIZE - 1:0] vx_data_x [0:NUM_PTS - 1];
     
     reg [KEY_SIZE - 1:0] vx_addr_cur;
     reg [KEY_SIZE - 1:0] vx_addr_alt;
@@ -280,8 +280,8 @@ module solver(
                     vx_cur <= '{vx_data_x[vx_addr_cur], vx_data_y[vx_addr_cur]};
                     vx_alt <= '{vx_data_x[vx_addr_alt], vx_data_y[vx_addr_alt]};
                     
-                    vx_addr_cur <= search_ctr + search_second + 1;
-                    vx_addr_alt <= search_ctr + search_second + 2;
+                    vx_addr_cur <= search_ctr + search_second + 2;
+                    vx_addr_alt <= search_ctr + search_second + 3;
                     search_second <= 2;
                     search_dual <= 0;
                     search_step <= 0;
@@ -308,8 +308,8 @@ module solver(
                     vx_cur <= '{vx_data_x[vx_addr_cur], vx_data_y[vx_addr_cur]};
                     vx_alt <= '{vx_data_x[vx_addr_alt], vx_data_y[vx_addr_alt]};
                     
-                    vx_addr_cur <= search_ctr + search_second + 2;
-                    vx_addr_alt <= search_ctr + search_second + 3;
+                    vx_addr_cur <= search_ctr + search_second + 3;
+                    vx_addr_alt <= search_ctr + search_second + 4;
                     search_second <= search_second + 2;
                 
                     if (search_ctr + search_second >= occupied || search_ctr + search_second + 1 >= occupied) begin
