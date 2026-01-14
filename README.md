@@ -34,6 +34,7 @@ By making a two assumptions about the puzzle input and the shape it creates, we 
 
 i.e. our logic will not work for this shape (which is itself the largest rectangle it contains):
 ```
+Fig 1
 ..............
 .#xxx##xxxxx#.
 .x...xx.....x.
@@ -46,6 +47,7 @@ i.e. our logic will not work for this shape (which is itself the largest rectang
 For any rectangle we're testing, we take the edges of the rectangle of interior (not on the edge or vertcices) points, and a single ray from x = 0 to a single point inside the rectangle (not passing through a vertex):
 
 ```
+Fig 2
 ..............        ...............
 .#xxxxxxxxxx#.        ..#..........#.
 .x..........x.        =>RTTTTTTTTTT..
@@ -61,12 +63,25 @@ The rectangle we're testing is invalid if any edge of the larger shape intersect
 
 Why does this work?
 
-Our rectangle is invalid if any of the points are not contained inside the larger shape, if a perpendicular edge intersects an interior edge, we assume that at least 1 point in the rectangle is invalid.
+Our rectangle is invalid if any of the points are not contained inside the larger shape, if a perpendicular edge intersects an interior edge, we assume that at least 1 point in the rectangle is invalid (which is false in fig 1 above). We test the interior edges rather than the exterior edges as this avoids us falsely disqualifying a rectangle which may have other points on the rectangle edges, but none inside the rectangle itself.
 
+In fig 3 below, on the left there is a rectangle with points A, B which would falsely be flagged as invalid if we tested the rectangle edges, we could get around this by ignoring the start and ends of larger shape edges, but then the rectangle on the right would be falsely flagged as valid. Testing the interior edges instead solves this problem.
 
-
+```
+Fig 3
+..............        ...............
+....#xxx#.....        ..Axxx#..#xxx#.
+....x...x.....        ..x...x..x...x.
+.Axx#...#xxx#.        ..x...#xx#...x.
+.x..........x.        ..x..........x.
+.#xxxxxxxxxxB.        ..#xxxxxxxxxxB.
+..............        ...............
+```
 
 ### Optimisation
+
+
+
 
 
 
