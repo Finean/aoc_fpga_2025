@@ -3,9 +3,9 @@
 Solved days 3 and 9 targeting CMOD A7-35T FPGA
 
 
-[Day 9](day-9)
+[Day 9](#day-9)
 
-[Day 3](day-3)
+[Day 3](#day-3)
 
 ## Day 9
 
