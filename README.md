@@ -102,6 +102,9 @@ We calculate how many cycles the search logic waited for empty cache slots to st
 
 Using `VERIFY_PARALLEL = 40` we correctly compute the answer in 5.87ms (70712 cycles), with 7205 search wait cycles.
 
+With `VERIFY_PARALLEL = 80` we reduce search wait cycles down to only 45, and the number of cycles is as we would expect for our search method.
+
+<img width="711" height="439" alt="image" src="https://github.com/user-attachments/assets/880d27d5-5ed5-4b89-b223-0efe0c995f79" />
 
 
 
