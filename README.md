@@ -1,6 +1,6 @@
 # aoc_fpga_2025
 
-Solved days 3 and 9 targeting CMOD A7-35T FPGA, running at 12Mhz.
+Solutions for days 3 and 9 targeting CMOD A7-35T FPGA, running at 12Mhz.
 
 [Day 9](#day-9)
 
