@@ -106,8 +106,25 @@ With `VERIFY_PARALLEL = 80` we reduce wait cycles down to only 45, and the numbe
 
 <img width="711" height="439" alt="image" src="https://github.com/user-attachments/assets/880d27d5-5ed5-4b89-b223-0efe0c995f79" />
 
+On the CMOD-A7 we can fit VERIFY_PARALLEL = 32, resulting in a runtime of around 6.3ms using < 0.1W of power, looking at software solutions to this problem suggests that this is faster than most of the more optimal solutions which generally have runtimes of around 10-20ms and run on CPUs requiring significantly more power.
 
+### How to run
 
+#### Simulation
+
+Use input.py to convert your input "input.txt" into output_x.bin and output_y.bin, the source should read these as the initial values for the vertex data.
+
+Ensure you set NUM_PTS to be larger than the number of lines in your input file + 1.
+
+The default values will work for the puzzle inputs.
+
+Included is a testbench which will output the result as well as the total runtime for the module.
+
+#### CMOD-A7
+
+Included is a .xdc file with constraints for the CMOD-A7, setting VERIFY_PARALLEL = 32 the design should synthesise (tested) and run on the device.
+
+This communicated the result over UART at 9_600 BAUD, even parity bit, 1 stop bit
 
 ## Day 3
 
