@@ -1,8 +1,18 @@
 # aoc_fpga_2025
 
-## Introduction
+Solved days 3 and 9 targeting CMOD A7-35T FPGA
 
-This intends to implement a solution for day 3 of AOC2025 on a Digilient CMOD A7-35T FPGA, communicating over UART.
+
+[Day 9](day-9)
+
+[Day 3](day-3)
+
+## Day 9
+
+
+
+
+## Day 3
 
 ## Approach
 
