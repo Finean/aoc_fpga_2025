@@ -13,8 +13,8 @@ Solved days 3 and 9 targeting CMOD A7-35T FPGA, running at 12Mhz.
 This solves part 2 of day 9. For this puzzle we have to find the largest area contained inside the shape with vertices the points of the puzzle input.
 
 We split this up into two main parts: <br>
-(1) Calculate the areas of all the possible rectangles <br>
-(2) Check whether each rectangles (if larger than the current largest valid) is contained inside the shape <br>
+(1) Calculate the areas of all the possible rectangles (search) <br>
+(2) Check whether each rectangles (if larger than the current largest valid) is contained inside the shape (verification) <br>
 
 The puzzle input is around 500 lines long, needing at least 34 bits per vertex, so computing and then storing each possible area (34 bits per area) would require around 4.2Mb of data, far too much to be stored on our FPGA. So our approach needs to be careful with how much RAM it uses.
 
@@ -80,8 +80,27 @@ Fig 3
 
 ### Optimisation
 
+#### Search logic:
 
+- We construct the horizontal edges and vertical edges at the start of our program, we can calculate an initial `max_area` from the longest of these to filter out initial smaller rectangles.
 
+- There are 500 * 499 / 2 = ~125000 possible rectangles, 500 of which are edges and can be ignored.
+
+- Our FPGA has dual port BRAM, so we could possibly check 2 rectangles per cycle on most cycles, this reduces our required number of cycles from ~125000 -> ~62000.
+
+#### Verification logic:
+
+- We are storing horizontal and vertical edges in separate arrays in BRAM, this means we can check 2 horizontal and 2 vertical edges per cycle, this means we can verify each rectangle in a maximum of ~125 cycles (assuming an even split between vertical and horizontal edges).
+
+- We can parallelise this logic easily by verifying multiple rectangles at the same time, we don't need to start searching through edges at index 0, we simply store the cycle number at which each rectangle is done verifying.
+
+- Using sufficient parallel verifiers and a cache of rectangles waiting to be verified we could theoretically reduce the runtime to just slightly larger than the number of cycles needed to search through the possible rectangles.
+
+#### Results
+
+We calculate how many cycles the search logic waited for empty cache slots to store results and call this "search wait cycles".
+
+Using `VERIFY_PARALLEL = 40` we correctly compute the answer in 5.87ms (70712 cycles), with 7205 search wait cycles.
 
 
 
