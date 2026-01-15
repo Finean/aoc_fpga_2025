@@ -3,7 +3,7 @@
 // UART uses 8 bits + 1 parity (even)
 package params;
     // Number of parallel verifiers
-    localparam VERIFY_PARALLEL = 30;
+    localparam VERIFY_PARALLEL = 32;
     
     // Cache size for search
     localparam CACHE_SIZE = 30;
