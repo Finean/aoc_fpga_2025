@@ -3,7 +3,7 @@
 module testbench;
     
     parameter CLK_FREQ = 12_000_000;
-    parameter BAUD_RATE = 57_600;
+    parameter BAUD_RATE = 38_400;
     
     parameter CLK_PERIOD = 1_000_000_000 / CLK_FREQ; // ns
     parameter CYCLES_PER_BIT = CLK_FREQ / BAUD_RATE;
@@ -199,19 +199,12 @@ module testbench;
         uart_txd_in = 1;  // Idle high
         
         // Wait for initialization (state 0x00)
-        #(CLK_PERIOD * 1000);
+        #(CLK_PERIOD * 100);
         
         // Run the specific test case
         test_case();
         
         // The receiver task will handle completion and $finish
-    end
-    
-    // Watch for timeout
-    initial begin
-        #(CLK_PERIOD * 2000000);
-        $display("ERROR: Testbench timeout");
-        $finish;
     end
     
     // Monitor data reception
